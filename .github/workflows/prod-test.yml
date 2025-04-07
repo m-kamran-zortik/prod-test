@@ -1,0 +1,60 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - NUDGED-797  # Trigger only when this branch is pushed
+
+jobs:
+  deploy:
+    name: Build & Deploy to Cloud Run
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+      with:
+        repository: devlogixteam/Nudged-Backend
+        ref: NUDGED-797
+
+    - name: Set up Google Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+    - name: Build Docker Image
+      run: |
+        cd Nudged-Backend
+        VERSION=v1-$(date +%s)
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        docker build -t prod-test:$VERSION .
+
+    - name: Tag Docker Image
+      run: |
+        docker tag prod-test:${{ env.VERSION }} \
+          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }}
+
+    - name: Push Docker Image to Artifact Registry
+      run: |
+        docker push \
+          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }}
+
+    - name: (Optional) List Docker Images in Artifact Registry
+      run: |
+        gcloud artifacts docker images list \
+          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy prod-test-service \
+          --image=${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }} \
+          --platform=managed \
+          --region=${{ secrets.GCP_REGION }} \
+          --allow-unauthenticated \
+          --port=8000 \
+          --service-account=your-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+          --quiet
