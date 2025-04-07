@@ -11,7 +11,7 @@ jobs:
     steps:
     - name: Clone External Repo
       run: |
-        git clone --branch ${{ secrets.CLONE_BRANCH }} https://github.com/devlogixteam/Nudged-Backend.git
+        git clone  https://github.com/devlogixteam/Nudged-Backend.git
         cd Nudged-Backend
         echo "Cloned and checked out branch ${{ secrets.CLONE_BRANCH }}"
 
