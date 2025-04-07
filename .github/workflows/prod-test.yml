@@ -1,22 +1,19 @@
-name: Deploy External Repo to Cloud Run
+name: Deploy External Backend to Cloud Run
 
 on:
-  workflow_dispatch:  # Allows manual trigger
+  workflow_dispatch:  # Manual trigger from Actions tab
 
 jobs:
   deploy:
+    name: Clone External Repo & Deploy to GCP
     runs-on: ubuntu-latest
-    name: Clone & Deploy
 
     steps:
-    - name: Checkout this repo
-      uses: actions/checkout@v3
-
-    - name: Clone external repo and checkout branch
+    - name: Clone External Repo
       run: |
-        git clone ${{ secrets.EXTERNAL_REPO }}
+        git clone --branch ${{ secrets.CLONE_BRANCH }} https://github.com/devlogixteam/Nudged-Backend.git
         cd Nudged-Backend
-        git checkout ${{ secrets.EXTERNAL_BRANCH }}
+        echo "Cloned and checked out branch ${{ secrets.CLONE_BRANCH }}"
 
     - name: Set up Google Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
@@ -24,22 +21,38 @@ jobs:
         project_id: ${{ secrets.GCP_PROJECT_ID }}
         service_account_key: ${{ secrets.GCP_SA_KEY }}
 
-    - name: Configure Docker for Artifact Registry
-      run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+    - name: Configure Docker for GCP Artifact Registry
+      run: |
+        gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
 
     - name: Build Docker Image
       run: |
         cd Nudged-Backend
-        VERSION=v1-$(date +%Y%m%d%H%M%S)
+        VERSION="v1-$(date +%s)"
         echo "VERSION=$VERSION" >> $GITHUB_ENV
-        docker build -t ${{ secrets.IMAGE_NAME }}:$VERSION .
+        docker build -t prod-test:$VERSION .
 
-    - name: Tag Docker Image
+    - name: Tag Docker Image for Artifact Registry
       run: |
-        docker tag ${{ secrets.IMAGE_NAME }}:${{ env.VERSION }} \
-          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/${{ secrets.IMAGE_NAME }}:${{ env.VERSION }}
+        docker tag prod-test:${{ env.VERSION }} \
+          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }}
 
     - name: Push Docker Image
       run: |
-        docker push \
-          ${{ secrets.GCP_REGION }}-docker.pkg.dev_
+        docker push ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }}
+
+    - name: List Docker Images (optional)
+      run: |
+        gcloud artifacts docker images list \
+          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy prod-test-service \
+          --image=${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }} \
+          --platform=managed \
+          --region=${{ secrets.GCP_REGION }} \
+          --port=8000 \
+          --allow-unauthenticated \
+          --service-account=your-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+          --quiet
