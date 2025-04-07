@@ -1,21 +1,22 @@
-name: Deploy to Cloud Run
+name: Deploy External Repo to Cloud Run
 
 on:
-  push:
-    branches:
-      - NUDGED-797  # Trigger only when this branch is pushed
+  workflow_dispatch:  # Allows manual trigger
 
 jobs:
   deploy:
-    name: Build & Deploy to Cloud Run
     runs-on: ubuntu-latest
+    name: Clone & Deploy
 
     steps:
-    - name: Checkout Repo
+    - name: Checkout this repo
       uses: actions/checkout@v3
-      with:
-        repository: devlogixteam/Nudged-Backend
-        ref: NUDGED-797
+
+    - name: Clone external repo and checkout branch
+      run: |
+        git clone ${{ secrets.EXTERNAL_REPO }}
+        cd Nudged-Backend
+        git checkout ${{ secrets.EXTERNAL_BRANCH }}
 
     - name: Set up Google Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
@@ -29,32 +30,16 @@ jobs:
     - name: Build Docker Image
       run: |
         cd Nudged-Backend
-        VERSION=v1-$(date +%s)
+        VERSION=v1-$(date +%Y%m%d%H%M%S)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
-        docker build -t prod-test:$VERSION .
+        docker build -t ${{ secrets.IMAGE_NAME }}:$VERSION .
 
     - name: Tag Docker Image
       run: |
-        docker tag prod-test:${{ env.VERSION }} \
-          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }}
+        docker tag ${{ secrets.IMAGE_NAME }}:${{ env.VERSION }} \
+          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/${{ secrets.IMAGE_NAME }}:${{ env.VERSION }}
 
-    - name: Push Docker Image to Artifact Registry
+    - name: Push Docker Image
       run: |
         docker push \
-          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }}
-
-    - name: (Optional) List Docker Images in Artifact Registry
-      run: |
-        gcloud artifacts docker images list \
-          ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test
-
-    - name: Deploy to Cloud Run
-      run: |
-        gcloud run deploy prod-test-service \
-          --image=${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/prod-test/prod-test:${{ env.VERSION }} \
-          --platform=managed \
-          --region=${{ secrets.GCP_REGION }} \
-          --allow-unauthenticated \
-          --port=8000 \
-          --service-account=your-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
-          --quiet
+          ${{ secrets.GCP_REGION }}-docker.pkg.dev_
